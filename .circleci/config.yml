@@ -42,6 +42,7 @@ jobs:  # basic units of work in a run
           name: Wait for DB
           command: dockerize -wait tcp://localhost:5432 -timeout 1m
 
+      - run: mix format --check-formatted
       - run: mix test  # run all tests in project
 
       - store_test_results:  # upload junit test results for display in Test Summary
