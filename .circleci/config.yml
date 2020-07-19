@@ -1,52 +1,106 @@
-version: 2  # use CircleCI 2.0 instead of CircleCI Classic
-jobs:  # basic units of work in a run
-  build:  # runs not using Workflows must have a `build` job as entry point
-    parallelism: 1  # run only one instance of this job
-    docker:  # run the steps with Docker
-      - image: circleci/elixir:1.10.4  # ...with this image as the primary container; this is where all `steps` will run
-        environment:  # environment variables for primary container
+version: 2
+defaults: &defaults
+  working_directory: ~/metatags
+  docker:
+    - image: elixir:1.8.2-otp-22
+      environment:
+        MIX_ENV: test
+
+jobs:
+  build:
+    <<: *defaults
+    steps:
+      - checkout
+
+      - restore_cache:
+          keys:
+            - v2-deps-cache-{{ checksum "mix.lock" }}
+            - v2-deps-cache
+      - run: mix local.hex --force
+      - run: mix local.rebar --force
+      - run: mix deps.get
+      - run: mix deps.compile
+      - run: mix compile
+      - save_cache:
+          key: v2-deps-cache-{{ checksum "mix.lock" }}
+          paths:
+            - _build
+            - deps
+            - ~/.mix
+      - persist_to_workspace:
+          root: ~/
+          paths:
+            - metatags
+            - .mix
+
+  test:
+    working_directory: ~/metatags
+    docker:
+      - image: elixir:1.8.2-otp-22
+        environment:
           MIX_ENV: test
       - image: circleci/postgres:12.3  # database image
         environment:  # environment variables for database
           POSTGRES_USER: postgres
           POSTGRES_DB: todo_list_test
           POSTGRES_PASSWORD:
+    steps:
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: Run tests
+          command: mix coveralls.html --umbrella
+      - store_artifacts:
+          path: cover
 
-    working_directory: ~/app  # directory where steps will run
+  credo:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: Run credo
+          command: mix credo
 
-    steps:  # commands that comprise the `build` job
-      - checkout  # check out source code to working directory
+  check_formatted:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: ~/
+      - run:
+          name: Verify formatted
+          command: mix format --check-formatted
 
-      - run: mix local.hex --force  # install Hex locally (without prompt)
-      - run: mix local.rebar --force  # fetch a copy of rebar (without prompt)
-
-      - restore_cache:  # restores saved mix cache
-      # Read about caching dependencies: https://circleci.com/docs/2.0/caching/
-          keys:  # list of cache keys, in decreasing specificity
-            - v1-mix-cache-{{ .Branch }}-{{ checksum "mix.lock" }}
-            - v1-mix-cache-{{ .Branch }}
-            - v1-mix-cache
-      - restore_cache:  # restores saved build cache
+  dialyzer:
+    <<: *defaults
+    steps:
+      - attach_workspace:
+          at: ~/
+      - restore_cache:
           keys:
-            - v1-build-cache-{{ .Branch }}
-            - v1-build-cache
-      - run: mix do deps.get, compile  # get updated dependencies & compile them
-      - save_cache:  # generate and store mix cache
-          key: v1-mix-cache-{{ .Branch }}-{{ checksum "mix.lock" }}
-          paths: "deps"
-      - save_cache: # don't forget to save a *build* cache, too
-          key: v1-build-cache-{{ .Branch }}
-          paths: "_build"
+            - v1-plt-cache-{{ checksum "mix.lock" }}
+            - v1-plt-cache
+      - run: mix dialyzer --plt
+      - save_cache:
+          key: v1-plt-cache-{{ checksum "mix.lock" }}
+          paths:
+            - _build
+            - ~/.mix
+      - run:
+          name: Run dialyzer
+          command: mix dialyzer
 
-      - run:  # special utility that stalls main process until DB is ready
-          name: Wait for DB
-          command: dockerize -wait tcp://localhost:5432 -timeout 1m
-
-      - run: mix format --check-formatted
-      - run: mix test  # run all tests in project
-      - run: mix credo --strict
-
-      - store_test_results:  # upload junit test results for display in Test Summary
-          # Read more: https://circleci.com/docs/2.0/collect-test-data/
-          path: _build/test/lib/todo_list
-
+workflows:
+  version: 2
+  continuous_integration:
+    jobs:
+      - build
+      - test:
+          requires:
+            - build
+      - credo:
+          requires:
+            - build
+      - dialyzer:
+          requires:
+            - build
