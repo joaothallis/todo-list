@@ -16,6 +16,8 @@ defmodule TodoList.DataCase do
 
   use ExUnit.CaseTemplate
 
+  alias Ecto.Adapters.SQL.Sandbox
+
   using do
     quote do
       alias TodoList.Repo
@@ -28,10 +30,10 @@ defmodule TodoList.DataCase do
   end
 
   setup tags do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(TodoList.Repo)
+    :ok = Sandbox.checkout(TodoList.Repo)
 
     unless tags[:async] do
-      Ecto.Adapters.SQL.Sandbox.mode(TodoList.Repo, {:shared, self()})
+      Sandbox.mode(TodoList.Repo, {:shared, self()})
     end
 
     :ok
